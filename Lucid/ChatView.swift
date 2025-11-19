@@ -10,16 +10,16 @@ import SwiftUI
 struct ChatView: View {
     @Bindable var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
-    
+
     init(viewModel: ChatViewModel) {
         self.viewModel = viewModel
     }
-    
+
     // Convenience initializer for backward compatibility
     init(userId: String, conversationId: String) {
         self.viewModel = ChatViewModel(userId: userId, conversationId: conversationId)
     }
-    
+
     var body: some View {
         VStack(spacing: 0) {
             // Messages List
@@ -30,24 +30,26 @@ struct ChatView: View {
                             MessageBubble(message: message)
                                 .id(message.id)
                         }
-                        
+
                         if viewModel.isLoading {
                             HStack {
                                 ProgressView()
+                                    .padding(.trailing, 8)
                                 Text("Thinking...")
                                     .foregroundStyle(.secondary)
+                                Spacer()
                             }
                             .padding()
+                            .id("thinking")
                         }
                     }
                     .padding()
                 }
                 .onChange(of: viewModel.messages.count) { _, _ in
-                    if let lastMessage = viewModel.messages.last {
-                        withAnimation {
-                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                        }
-                    }
+                    scrollToBottom(proxy: proxy)
+                }
+                .onChange(of: viewModel.isLoading) { _, _ in
+                    scrollToBottom(proxy: proxy)
                 }
                 .onTapGesture {
                     isInputFocused = false
@@ -63,19 +65,22 @@ struct ChatView: View {
             }
             
             // Input Bar
-            HStack {
+            HStack(alignment: .bottom) {
                 TextField("Message Lucid...", text: $viewModel.inputText, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...5)
                     .focused($isInputFocused)
+                    .submitLabel(.send)
                     .onSubmit {
                         Task {
+                            isInputFocused = false
                             await viewModel.sendMessage()
                         }
                     }
-                
+
                 Button {
                     Task {
+                        isInputFocused = false
                         await viewModel.sendMessage()
                     }
                 } label: {
@@ -91,6 +96,13 @@ struct ChatView: View {
         .navigationTitle("Lucid")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    isInputFocused = false
+                }
+            }
+
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
@@ -100,7 +112,7 @@ struct ChatView: View {
                     } label: {
                         Label("Extract Facts", systemImage: "brain")
                     }
-                    
+
                     Button {
                         Task {
                             await viewModel.generateSummary()
@@ -126,6 +138,16 @@ struct ChatView: View {
                 Task {
                     await viewModel.loadMessages()
                 }
+            }
+        }
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        withAnimation {
+            if viewModel.isLoading {
+                proxy.scrollTo("thinking", anchor: .bottom)
+            } else if let lastMessage = viewModel.messages.last {
+                proxy.scrollTo(lastMessage.id, anchor: .bottom)
             }
         }
     }

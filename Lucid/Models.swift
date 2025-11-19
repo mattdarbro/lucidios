@@ -36,9 +36,12 @@ struct Conversation: Codable, Identifiable {
     let timeOfDay: String?
     let userTimezone: String?
     let messageCount: Int?
+    let conversationContext: String? // NEW: "general", "task_check_in", "insight_review"
+    let relatedTaskId: String? // NEW: For task-related conversations
+    let relatedInsightId: String? // NEW: For insight discussions
     let createdAt: Date
     let updatedAt: Date?
-    
+
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
@@ -46,6 +49,9 @@ struct Conversation: Codable, Identifiable {
         case timeOfDay = "time_of_day"
         case userTimezone = "user_timezone"
         case messageCount = "message_count"
+        case conversationContext = "conversation_context"
+        case relatedTaskId = "related_task_id"
+        case relatedInsightId = "related_insight_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -262,6 +268,8 @@ struct MultiDayTask: Codable, Identifiable {
     let checkInTimes: [String]
     let durationDays: Int
     let status: String
+    let conversationId: String? // NEW: Primary conversation for check-ins
+    let primaryConversationId: String? // NEW: Same as conversationId (backend compatibility)
     let createdAt: Date
     let updatedAt: Date?
     let checkInsCount: Int?
@@ -298,6 +306,8 @@ struct MultiDayTask: Codable, Identifiable {
         case description
         case topicCategory = "topic_category"
         case status
+        case conversationId = "conversation_id"
+        case primaryConversationId = "primary_conversation_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case checkInsCount = "check_ins_count"
@@ -311,13 +321,15 @@ struct MultiDayTask: Codable, Identifiable {
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
+
         id = try container.decode(String.self, forKey: .id)
         userId = try container.decode(String.self, forKey: .userId)
         title = try container.decode(String.self, forKey: .title)
         description = try container.decodeIfPresent(String.self, forKey: .description)
         topicCategory = try container.decodeIfPresent(String.self, forKey: .topicCategory)
         status = try container.decode(String.self, forKey: .status)
+        conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
+        primaryConversationId = try container.decodeIfPresent(String.self, forKey: .primaryConversationId)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
         targetCompletionDate = try container.decodeIfPresent(Date.self, forKey: .targetCompletionDate)
@@ -353,13 +365,15 @@ struct MultiDayTask: Codable, Identifiable {
     
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        
+
         try container.encode(id, forKey: .id)
         try container.encode(userId, forKey: .userId)
         try container.encode(title, forKey: .title)
         try container.encodeIfPresent(description, forKey: .description)
         try container.encodeIfPresent(topicCategory, forKey: .topicCategory)
         try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(conversationId, forKey: .conversationId)
+        try container.encodeIfPresent(primaryConversationId, forKey: .primaryConversationId)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(targetCompletionDate, forKey: .targetCompletionDate)
@@ -367,7 +381,7 @@ struct MultiDayTask: Codable, Identifiable {
         try container.encodeIfPresent(finalSynthesis, forKey: .finalSynthesis)
         try container.encodeIfPresent(synthesisCreatedAt, forKey: .synthesisCreatedAt)
         try container.encodeIfPresent(checkInsCount, forKey: .checkInsCount)
-        
+
         // Encode metadata structure
         let metadata = TaskMetadata(durationDays: durationDays, checkInTimes: checkInTimes)
         try container.encode(metadata, forKey: .metadata)
@@ -458,11 +472,154 @@ struct TemporalAnalysis: Codable {
     let morningInsights: [String]
     let eveningInsights: [String]
     let optimalDecisionTime: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case morningInsights = "morning_insights"
         case eveningInsights = "evening_insights"
         case optimalDecisionTime = "optimal_decision_time"
     }
+}
+
+// MARK: - Insights (Conversational Insight System)
+struct Insight: Codable, Identifiable {
+    let id: String
+    let taskId: String
+    let userId: String
+    let insightText: String
+    let confidence: Double // 0.0-1.0
+    let patternType: String // "temporal_mood", "language_change", "energy_correlation", etc.
+    let supportingEvidence: [String: AnyCodable]? // Flexible JSON structure
+    let userValidated: Bool?
+    let userRefinement: String?
+    let status: String // "proposed", "confirmed", "rejected", "refined"
+    let createdAt: Date
+    let reviewedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case taskId = "task_id"
+        case userId = "user_id"
+        case insightText = "insight_text"
+        case confidence
+        case patternType = "pattern_type"
+        case supportingEvidence = "supporting_evidence"
+        case userValidated = "user_validated"
+        case userRefinement = "user_refinement"
+        case status
+        case createdAt = "created_at"
+        case reviewedAt = "reviewed_at"
+    }
+}
+
+// Helper to handle flexible JSON in supportingEvidence
+struct AnyCodable: Codable {
+    let value: Any
+
+    init(_ value: Any) {
+        self.value = value
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+
+        if let intValue = try? container.decode(Int.self) {
+            value = intValue
+        } else if let doubleValue = try? container.decode(Double.self) {
+            value = doubleValue
+        } else if let stringValue = try? container.decode(String.self) {
+            value = stringValue
+        } else if let boolValue = try? container.decode(Bool.self) {
+            value = boolValue
+        } else if let arrayValue = try? container.decode([AnyCodable].self) {
+            value = arrayValue.map { $0.value }
+        } else if let dictValue = try? container.decode([String: AnyCodable].self) {
+            value = dictValue.mapValues { $0.value }
+        } else {
+            value = NSNull()
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+
+        switch value {
+        case let intValue as Int:
+            try container.encode(intValue)
+        case let doubleValue as Double:
+            try container.encode(doubleValue)
+        case let stringValue as String:
+            try container.encode(stringValue)
+        case let boolValue as Bool:
+            try container.encode(boolValue)
+        case let arrayValue as [Any]:
+            try container.encode(arrayValue.map { AnyCodable($0) })
+        case let dictValue as [String: Any]:
+            try container.encode(dictValue.mapValues { AnyCodable($0) })
+        default:
+            try container.encodeNil()
+        }
+    }
+}
+
+struct InsightInteraction: Codable, Identifiable {
+    let id: String
+    let insightId: String
+    let userId: String
+    let reviewedAt: Date
+    let timeOfDay: String? // "morning", "afternoon", "evening", "late_night"
+    let action: String // "accepted", "rejected", "refined"
+    let refinementText: String?
+    let energyLevel: Int? // 1-5
+    let mood: Int? // 1-5
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case insightId = "insight_id"
+        case userId = "user_id"
+        case reviewedAt = "reviewed_at"
+        case timeOfDay = "time_of_day"
+        case action
+        case refinementText = "refinement_text"
+        case energyLevel = "energy_level"
+        case mood
+    }
+}
+
+struct InsightReceptivityPattern: Codable {
+    let userId: String
+    let preferredReviewTime: String? // "morning", etc.
+    let overallAcceptanceRate: Double
+    let acceptanceByTimeOfDay: [String: Double]?
+    let challengeRate: Double
+    let requiresData: Bool
+    let successfulPhrasingPatterns: [String]?
+    let rejectedPhrasingPatterns: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case preferredReviewTime = "preferred_review_time"
+        case overallAcceptanceRate = "overall_acceptance_rate"
+        case acceptanceByTimeOfDay = "acceptance_by_time_of_day"
+        case challengeRate = "challenge_rate"
+        case requiresData = "requires_data"
+        case successfulPhrasingPatterns = "successful_phrasing_patterns"
+        case rejectedPhrasingPatterns = "rejected_phrasing_patterns"
+    }
+}
+
+// Response wrappers for Insight API calls
+struct InsightsResponse: Codable {
+    let insights: [Insight]
+    let count: Int
+}
+
+struct ValidateInsightResponse: Codable {
+    let insight: Insight
+    let message: String
+}
+
+struct StartInsightDiscussionResponse: Codable {
+    let conversation: Conversation
+    let insight: Insight
 }
 

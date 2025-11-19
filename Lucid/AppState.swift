@@ -18,7 +18,6 @@ class AppState {
     
     // Persisted view models
     var chatViewModel: ChatViewModel?
-    var insightsViewModel: InsightsViewModel?
     var profileViewModel: ProfileViewModel?
     
     private let api = LucidAPIClient.shared
@@ -93,7 +92,6 @@ class AppState {
             // Initialize view models once user and conversation are ready
             if let conversation = currentConversation {
                 chatViewModel = ChatViewModel(userId: userId, conversationId: conversation.id)
-                insightsViewModel = InsightsViewModel(userId: userId, conversationId: conversation.id)
                 profileViewModel = ProfileViewModel(userId: userId)
             }
         } catch let error as APIError {
@@ -112,10 +110,9 @@ class AppState {
     func switchToConversation(_ conversation: Conversation) {
         currentConversation = conversation
         defaults.currentConversationId = conversation.id
-        
+
         if let userId = currentUser?.id {
             chatViewModel = ChatViewModel(userId: userId, conversationId: conversation.id)
-            insightsViewModel = InsightsViewModel(userId: userId, conversationId: conversation.id)
         }
     }
     

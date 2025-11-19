@@ -10,119 +10,68 @@ import Foundation
 @Observable
 class ResearchTaskDetailViewModel {
     let task: MultiDayTask
-    var checkIns: [TaskCheckIn] = []
-    var analysis: TemporalAnalysis?
-    
-    var isLoading = false
-    var isLoadingAnalysis = false
+    var insights: [Insight] = []
+    var chatViewModel: ChatViewModel?
+
+    var isLoadingInsights = false
+    var isGeneratingInsights = false
     var errorMessage: String?
-    
+
     private let api = LucidAPIClient.shared
-    
+
     init(task: MultiDayTask) {
         self.task = task
+
+        // Create chat view model if task has a conversation
+        if let conversationId = task.conversationId ?? task.primaryConversationId {
+            self.chatViewModel = ChatViewModel(userId: task.userId, conversationId: conversationId)
+        }
     }
-    
-    func loadCheckIns() async {
-        isLoading = true
+
+    func loadInsights() async {
+        isLoadingInsights = true
         errorMessage = nil
         do {
-            let loadedCheckIns = try await api.getTaskCheckIns(taskId: task.id)
-            checkIns = loadedCheckIns
-            print("✅ Loaded \(loadedCheckIns.count) check-ins for task \(task.id)")
+            insights = try await api.getTaskInsights(taskId: task.id)
+            print("✅ Loaded \(insights.count) insights for task \(task.id)")
         } catch let error as APIError {
-            errorMessage = error.errorDescription ?? "Failed to load check-ins: \(error.localizedDescription)"
-            print("❌ Failed to load check-ins: \(error.localizedDescription)")
+            errorMessage = error.errorDescription ?? "Failed to load insights: \(error.localizedDescription)"
+            print("❌ Failed to load insights: \(error.localizedDescription)")
         } catch {
-            errorMessage = "Failed to load check-ins: \(error.localizedDescription)"
-            print("❌ Failed to load check-ins: \(error.localizedDescription)")
+            errorMessage = "Failed to load insights: \(error.localizedDescription)"
+            print("❌ Failed to load insights: \(error.localizedDescription)")
         }
-        isLoading = false
+        isLoadingInsights = false
     }
-    
-    func addCheckIn(
-        response: String,
-        energy: Int,
-        mood: Int,
-        focus: Int,
-        insights: [String]?
-    ) async {
-        guard !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "Please enter a response before submitting."
-            return
-        }
-        
-        isLoading = true
+
+    func generateInsights() async {
+        isGeneratingInsights = true
         errorMessage = nil
-        
+
         do {
-            let timeOfDay = Self.currentTimeOfDay()
-            // Backend requires question_asked and question_type
-            let questionAsked = "How does this task feel for you right now?"
-            let questionType = Self.questionTypeForTimeOfDay(timeOfDay)
-            
-            let checkIn = try await api.addTaskCheckIn(
-                taskId: task.id,
-                timeOfDay: timeOfDay,
-                questionAsked: questionAsked,
-                questionType: questionType,
-                response: response,
-                energy: energy,
-                mood: mood,
-                focus: focus,
-                insights: insights
-            )
-            checkIns.append(checkIn)
-            print("✅ Added check-in, total count: \(checkIns.count)")
-            
-            // Reload check-ins from backend to ensure we have the latest data
-            await loadCheckIns()
+            let newInsights = try await api.generateInsights(taskId: task.id)
+            insights = newInsights
+            print("✅ Generated \(newInsights.count) insights for task \(task.id)")
         } catch let error as APIError {
-            errorMessage = error.errorDescription ?? "Failed to submit check-in: \(error.localizedDescription)"
+            errorMessage = error.errorDescription ?? "Failed to generate insights: \(error.localizedDescription)"
+            print("❌ Failed to generate insights: \(error.localizedDescription)")
         } catch {
-            errorMessage = "Failed to submit check-in: \(error.localizedDescription)"
+            errorMessage = "Failed to generate insights: \(error.localizedDescription)"
+            print("❌ Failed to generate insights: \(error.localizedDescription)")
         }
-        
-        isLoading = false
+
+        isGeneratingInsights = false
     }
-    
-    private static func questionTypeForTimeOfDay(_ timeOfDay: String) -> String {
-        switch timeOfDay {
-        case "morning":
-            return "aspirational"
-        case "afternoon":
-            return "reflective"
-        case "evening":
-            return "reflective"
-        case "late_night":
-            return "reflective"
-        default:
-            return "reflective"
-        }
+
+    var pendingInsights: [Insight] {
+        insights.filter { $0.status == "proposed" }
     }
-    
-    func loadAnalysis() async {
-        isLoadingAnalysis = true
-        errorMessage = nil
-        do {
-            analysis = try await api.getTaskTemporalAnalysis(taskId: task.id)
-        } catch let error as APIError {
-            errorMessage = error.errorDescription ?? "Failed to load analysis: \(error.localizedDescription)"
-        } catch {
-            errorMessage = "Failed to load analysis: \(error.localizedDescription)"
-        }
-        isLoadingAnalysis = false
+
+    var confirmedInsights: [Insight] {
+        insights.filter { $0.status == "confirmed" || $0.status == "refined" }
     }
-    
-    private static func currentTimeOfDay() -> String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 5..<12: return "morning"
-        case 12..<17: return "afternoon"
-        case 17..<21: return "evening"
-        default: return "late_night"
-        }
+
+    var hasConversation: Bool {
+        task.conversationId != nil || task.primaryConversationId != nil
     }
 }
-
-
