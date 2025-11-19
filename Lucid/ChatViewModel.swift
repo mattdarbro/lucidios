@@ -43,23 +43,38 @@ class ChatViewModel {
             errorMessage = "Invalid conversation ID. Please restart the chat."
             return
         }
-        
+
         let messageText = inputText
         inputText = ""
-        isLoading = true
         errorMessage = nil
-        
+
+        // Create optimistic user message and add immediately
+        let optimisticUserMessage = Message(
+            id: UUID().uuidString,
+            conversationId: conversationId,
+            role: .user,
+            content: messageText,
+            createdAt: Date()
+        )
+        messages.append(optimisticUserMessage)
+
+        // Show thinking indicator
+        isLoading = true
+
         do {
             let response = try await api.sendMessage(
                 conversationId: conversationId,
                 userId: userId,
                 message: messageText
             )
-            
-            // Add messages to local array
+
+            // Remove optimistic message and replace with real messages from API
+            if let index = messages.firstIndex(where: { $0.id == optimisticUserMessage.id }) {
+                messages.remove(at: index)
+            }
             messages.append(response.userMessage)
             messages.append(response.assistantMessage)
-            
+
             // Increment counter and check if we should extract facts
             messageCounter += 2
             if messageCounter % 10 == 0 {
@@ -67,15 +82,23 @@ class ChatViewModel {
                     await extractFacts()
                 }
             }
-            
+
         } catch let error as APIError {
             errorMessage = error.errorDescription ?? "Failed to send message: \(error.localizedDescription)"
+            // Remove optimistic message on error
+            if let index = messages.firstIndex(where: { $0.id == optimisticUserMessage.id }) {
+                messages.remove(at: index)
+            }
             inputText = messageText // Restore message on error
         } catch {
             errorMessage = "Failed to send message: \(error.localizedDescription)"
+            // Remove optimistic message on error
+            if let index = messages.firstIndex(where: { $0.id == optimisticUserMessage.id }) {
+                messages.remove(at: index)
+            }
             inputText = messageText // Restore message on error
         }
-        
+
         isLoading = false
     }
     

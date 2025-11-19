@@ -618,5 +618,102 @@ class LucidAPIClient {
     func deleteMultiDayTask(id: String) async throws {
         let _: EmptyResponse = try await request("/multi-day-tasks/\(id)", method: "DELETE")
     }
+
+    // MARK: - Task Insights
+    func generateInsights(taskId: String) async throws -> [Insight] {
+        let response: InsightsResponse = try await request(
+            "/tasks/\(taskId)/insights/generate",
+            method: "POST"
+        )
+        return response.insights
+    }
+
+    func getTaskInsights(taskId: String) async throws -> [Insight] {
+        do {
+            let response: InsightsResponse = try await request("/tasks/\(taskId)/insights")
+            return response.insights
+        } catch let error as APIError {
+            if case .serverError(let code, _) = error, code == 404 {
+                print("ℹ️ Task has no insights yet, returning empty array")
+                return []
+            }
+            throw error
+        }
+    }
+
+    func getPendingInsights(userId: String) async throws -> [Insight] {
+        do {
+            let response: InsightsResponse = try await request("/users/\(userId)/insights/pending")
+            return response.insights
+        } catch let error as APIError {
+            if case .serverError(let code, _) = error, code == 404 {
+                print("ℹ️ User has no pending insights, returning empty array")
+                return []
+            }
+            throw error
+        }
+    }
+
+    func validateInsight(
+        insightId: String,
+        action: String,
+        refinementText: String? = nil,
+        timeOfDay: String? = nil,
+        energyLevel: Int? = nil,
+        mood: Int? = nil
+    ) async throws -> Insight {
+        struct Body: Codable {
+            let action: String
+            let refinementText: String?
+            let timeOfDay: String?
+            let energyLevel: Int?
+            let mood: Int?
+
+            enum CodingKeys: String, CodingKey {
+                case action
+                case refinementText = "refinement_text"
+                case timeOfDay = "time_of_day"
+                case energyLevel = "energy_level"
+                case mood
+            }
+        }
+
+        let response: ValidateInsightResponse = try await request(
+            "/insights/\(insightId)/validate",
+            method: "POST",
+            body: Body(
+                action: action,
+                refinementText: refinementText,
+                timeOfDay: timeOfDay,
+                energyLevel: energyLevel,
+                mood: mood
+            )
+        )
+        return response.insight
+    }
+
+    func startInsightDiscussion(insightId: String) async throws -> (conversation: Conversation, insight: Insight) {
+        let response: StartInsightDiscussionResponse = try await request(
+            "/insights/\(insightId)/start-discussion",
+            method: "POST"
+        )
+        return (response.conversation, response.insight)
+    }
+
+    // MARK: - Helper Methods
+    /// Get current time of day based on local hour
+    func getCurrentTimeOfDay() -> String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12:
+            return "morning"
+        case 12..<17:
+            return "afternoon"
+        case 17..<21:
+            return "evening"
+        default:
+            return "late_night"
+        }
+    }
 }
 

@@ -33,7 +33,6 @@ struct ContentView: View {
                 .padding()
             } else if let user = appState.currentUser,
                       let chatViewModel = appState.chatViewModel,
-                      let insightsViewModel = appState.insightsViewModel,
                       let profileViewModel = appState.profileViewModel {
                 TabView(selection: $selectedTab) {
                     ResearchTasksView(userId: user.id)
@@ -41,12 +40,12 @@ struct ContentView: View {
                             Label("Research", systemImage: "chart.bar.doc.horizontal")
                         }
                         .tag(0)
-                    
+
                     CheckInsView(userId: user.id, appState: appState)
                         .tabItem {
                             ZStack(alignment: .topTrailing) {
                                 Label("Check-Ins", systemImage: "bell")
-                                
+
                                 if appState.pendingNotificationsCount > 0 {
                                     Circle()
                                         .fill(Color.red)
@@ -56,7 +55,7 @@ struct ContentView: View {
                             }
                         }
                         .tag(1)
-                    
+
                     ConversationListView(
                         userId: user.id,
                         onSelectConversation: { conversation in
@@ -74,21 +73,21 @@ struct ContentView: View {
                         Label("Conversations", systemImage: "list.bullet")
                     }
                     .tag(2)
-                    
+
                     ChatView(viewModel: chatViewModel)
                         .id("chat-\(chatViewModel.conversationId)")
                         .tabItem {
                             Label("Chat", systemImage: "message")
                         }
                         .tag(3)
-                    
-                    InsightsView(viewModel: insightsViewModel)
-                        .id("insights-\(insightsViewModel.userId)")
+
+                    InsightListView(userId: user.id)
+                        .id("insights-\(user.id)")
                         .tabItem {
                             Label("Insights", systemImage: "lightbulb")
                         }
                         .tag(4)
-                    
+
                     ProfileView(viewModel: profileViewModel)
                         .id("profile-\(profileViewModel.userId)")
                         .tabItem {

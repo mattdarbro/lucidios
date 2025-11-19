@@ -117,199 +117,230 @@ struct ResearchTasksView: View {
 
 struct ResearchTaskDetailView: View {
     @State private var viewModel: ResearchTaskDetailViewModel
-    
+    @State private var showingInsights = false
+
     init(task: MultiDayTask) {
         _viewModel = State(initialValue: ResearchTaskDetailViewModel(task: task))
     }
-    
-    @State private var showingCheckInForm = false
-    
+
     var body: some View {
-        List {
-            Section("Overview") {
+        VStack(spacing: 0) {
+            // Task Header
+            VStack(alignment: .leading, spacing: 8) {
                 Text(viewModel.task.title)
                     .font(.headline)
+
+                HStack {
+                    if let topic = viewModel.task.topicCategory {
+                        Text(topic.capitalized)
+                            .font(.caption2)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.blue.opacity(0.1))
+                            .foregroundStyle(.blue)
+                            .clipShape(Capsule())
+                    }
+
+                    Text(viewModel.task.status.capitalized)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    if !viewModel.insights.isEmpty {
+                        Button(action: { showingInsights = true }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "lightbulb.fill")
+                                Text("\(viewModel.insights.count)")
+                            }
+                            .font(.caption2)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.yellow.opacity(0.2))
+                            .foregroundStyle(.orange)
+                            .clipShape(Capsule())
+                        }
+                    }
+                }
+
                 if let description = viewModel.task.description {
                     Text(description)
-                        .font(.body)
-                }
-                if let topic = viewModel.task.topicCategory {
-                    Text("Topic: \(topic.capitalized)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Text("Status: \(viewModel.task.status.capitalized)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            
-            Section("Check-Ins") {
-                if viewModel.isLoading && viewModel.checkIns.isEmpty {
-                    ProgressView()
-                } else if viewModel.checkIns.isEmpty {
-                    Text("No check-ins yet.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(viewModel.checkIns) { checkIn in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(checkIn.response)
-                                .font(.body)
-                                .lineLimit(3)
-                            HStack {
-                                Text("Energy \(checkIn.selfReportedEnergy) • Mood \(checkIn.selfReportedMood) • Focus \(checkIn.selfReportedFocus)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Text(checkIn.createdAt, style: .time)
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
-                }
-            }
-            
-            Section("Analysis") {
-                if viewModel.isLoadingAnalysis {
-                    ProgressView("Loading analysis...")
-                } else if let analysis = viewModel.analysis {
-                    if !analysis.morningInsights.isEmpty {
-                        Text("Morning insights:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        ForEach(analysis.morningInsights, id: \.self) { insight in
-                            Text("• \(insight)")
-                                .font(.caption2)
-                        }
-                    }
-                    if !analysis.eveningInsights.isEmpty {
-                        Text("Evening insights:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        ForEach(analysis.eveningInsights, id: \.self) { insight in
-                            Text("• \(insight)")
-                                .font(.caption2)
-                        }
-                    }
-                    if let optimal = analysis.optimalDecisionTime {
-                        Text(optimal)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                            .padding(.top, 4)
-                    }
-                } else {
-                    Text("No analysis yet. Generate one after a few check-ins.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+            .padding()
+            .background(Color(.systemBackground))
+
+            Divider()
+
+            // Chat View for Check-Ins
+            if let chatViewModel = viewModel.chatViewModel {
+                ChatView(viewModel: chatViewModel)
+            } else {
+                ContentUnavailableView(
+                    "No Conversation Available",
+                    systemImage: "exclamationmark.bubble",
+                    description: Text("This task doesn't have a conversation yet.")
+                )
             }
         }
-        .navigationTitle("Task Details")
+        .navigationTitle("Task")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button("Add Check-In") {
-                    showingCheckInForm = true
-                }
-                Button("View Analysis") {
-                    Task { await viewModel.loadAnalysis() }
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button {
+                        Task {
+                            await viewModel.generateInsights()
+                        }
+                    } label: {
+                        if viewModel.isGeneratingInsights {
+                            Label("Generating...", systemImage: "sparkles")
+                        } else {
+                            Label("Generate Insights", systemImage: "sparkles")
+                        }
+                    }
+                    .disabled(viewModel.isGeneratingInsights)
+
+                    Button {
+                        showingInsights = true
+                    } label: {
+                        Label("View Insights (\(viewModel.insights.count))", systemImage: "lightbulb")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
         .task {
-            await viewModel.loadCheckIns()
+            await viewModel.loadInsights()
         }
-        .refreshable {
-            await viewModel.loadCheckIns()
-        }
-        .onAppear {
-            // Reload check-ins when view appears to ensure we have latest data
-            Task {
-                await viewModel.loadCheckIns()
-            }
-        }
-        .sheet(isPresented: $showingCheckInForm) {
-            TaskCheckInFormView(viewModel: viewModel)
+        .sheet(isPresented: $showingInsights) {
+            TaskInsightsView(viewModel: viewModel)
         }
     }
 }
 
-struct TaskCheckInFormView: View {
+// TaskInsightsView - Shows insights for a specific task
+struct TaskInsightsView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: ResearchTaskDetailViewModel
-    
-    @State private var response: String = ""
-    @State private var insightsText: String = ""
-    @State private var energy: Double = 3
-    @State private var mood: Double = 3
-    @State private var focus: Double = 3
-    @State private var isSubmitting = false
-    
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Question") {
-                    Text("How does this task feel for you right now?")
-                        .font(.body)
-                }
-                
-                Section("Your Response") {
-                    TextEditor(text: $response)
-                        .frame(minHeight: 120)
-                }
-                
-                Section("Insights (optional)") {
-                    TextField("Comma-separated insights", text: $insightsText)
-                }
-                
-                Section("How are you feeling?") {
-                    SliderRow(title: "Energy", value: $energy)
-                    SliderRow(title: "Mood", value: $mood)
-                    SliderRow(title: "Focus", value: $focus)
-                }
-                
-                Section {
-                    Button {
-                        Task {
-                            isSubmitting = true
-                            let insights = insightsText
-                                .split(separator: ",")
-                                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                                .filter { !$0.isEmpty }
-                            await viewModel.addCheckIn(
-                                response: response,
-                                energy: Int(energy),
-                                mood: Int(mood),
-                                focus: Int(focus),
-                                insights: insights.isEmpty ? nil : insights
-                            )
-                            isSubmitting = false
-                            if viewModel.errorMessage == nil {
-                                dismiss()
-                            }
-                        }
-                    } label: {
-                        if isSubmitting {
-                            HStack {
-                                ProgressView()
-                                Text("Submitting...")
-                            }
-                        } else {
-                            Text("Submit Check-In")
-                                .fontWeight(.semibold)
+            List {
+                if !viewModel.pendingInsights.isEmpty {
+                    Section("Pending Review") {
+                        ForEach(viewModel.pendingInsights) { insight in
+                            InsightRow(insight: insight, taskId: viewModel.task.id)
                         }
                     }
-                    .disabled(isSubmitting)
+                }
+
+                if !viewModel.confirmedInsights.isEmpty {
+                    Section("Confirmed") {
+                        ForEach(viewModel.confirmedInsights) { insight in
+                            InsightRow(insight: insight, taskId: viewModel.task.id)
+                        }
+                    }
+                }
+
+                if viewModel.insights.isEmpty {
+                    ContentUnavailableView(
+                        "No Insights Yet",
+                        systemImage: "lightbulb",
+                        description: Text("Check in a few times, then generate insights to see patterns.")
+                    )
                 }
             }
-            .navigationTitle("New Check-In")
+            .navigationTitle("Task Insights")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Done") { dismiss() }
                 }
             }
+            .refreshable {
+                await viewModel.loadInsights()
+            }
+        }
+    }
+}
+
+// Simple insight row for task-specific insights
+struct InsightRow: View {
+    let insight: Insight
+    let taskId: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: patternIcon)
+                    .foregroundStyle(patternColor)
+                Spacer()
+                confidenceBadge
+            }
+
+            Text(insight.insightText)
+                .font(.body)
+
+            HStack {
+                statusBadge
+                Spacer()
+                Text(insight.createdAt, style: .relative)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var patternIcon: String {
+        switch insight.patternType {
+        case "temporal_mood": return "clock.fill"
+        case "language_change": return "text.bubble.fill"
+        case "energy_correlation": return "bolt.fill"
+        default: return "lightbulb.fill"
+        }
+    }
+
+    private var patternColor: Color {
+        switch insight.patternType {
+        case "temporal_mood": return .blue
+        case "language_change": return .purple
+        case "energy_correlation": return .orange
+        default: return .yellow
+        }
+    }
+
+    private var confidenceBadge: some View {
+        Text("\(Int(insight.confidence * 100))%")
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.green.opacity(0.2))
+            .foregroundStyle(.green)
+            .clipShape(Capsule())
+    }
+
+    private var statusBadge: some View {
+        Text(insight.status.capitalized)
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(statusColor.opacity(0.2))
+            .foregroundStyle(statusColor)
+            .clipShape(Capsule())
+    }
+
+    private var statusColor: Color {
+        switch insight.status {
+        case "proposed": return .orange
+        case "confirmed": return .green
+        case "refined": return .blue
+        case "rejected": return .red
+        default: return .gray
         }
     }
 }
